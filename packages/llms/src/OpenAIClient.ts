@@ -62,11 +62,35 @@ export class OpenAIClient implements LLMClient {
 			throw new InvokeError(InvokeErrorType.NETWORK_ERROR, errorMessage, error)
 		}
 
+		const contentType = response.headers.get('content-type') || 'unknown'
+		const rawResponseText = await response.text()
+		console.log('[LLM] HTTP response meta:', {
+			status: response.status,
+			ok: response.ok,
+			contentType,
+			url: `${this.config.baseURL}/chat/completions`,
+		})
+		console.log('[LLM] Raw response text:', rawResponseText)
+
+		let data: any
+		try {
+			data = rawResponseText ? JSON.parse(rawResponseText) : {}
+		} catch (error) {
+			throw new InvokeError(
+				InvokeErrorType.UNKNOWN,
+				`Response is not valid JSON (content-type: ${contentType})`,
+				error,
+				rawResponseText
+			)
+		}
+
 		// 3. Handle HTTP errors
 		if (!response.ok) {
-			const errorData = await response.json().catch()
+			const errorData = data
 			const errorMessage =
-				(errorData as { error?: { message?: string } }).error?.message || response.statusText
+				(errorData as { error?: { message?: string } }).error?.message ||
+				response.statusText ||
+				'Request failed'
 
 			if (response.status === 401 || response.status === 403) {
 				throw new InvokeError(
@@ -97,8 +121,6 @@ export class OpenAIClient implements LLMClient {
 		}
 
 		// 4. Parse and validate response
-		const data = await response.json()
-
 		const choice = data.choices?.[0]
 		if (!choice) {
 			throw new InvokeError(InvokeErrorType.UNKNOWN, 'No choices in response', data)
